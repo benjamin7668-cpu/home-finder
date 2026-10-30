@@ -107,3 +107,20 @@ async def test_pipeline_reports_districts_with_no_trades():
     deps.sggs = deps.sggs + [Sgg("28110", "인천광역시 중구")]
     out, _ = await run(req(), deps)
     assert out["notes"]["empty_sggs"] == ["인천광역시 중구"]
+
+
+async def test_pipeline_commute_calls_fit_odsay_free_quota():
+    # ODsay 무료 한도는 하루 30회 → 새 직장 조합 1회 검색이 20회 이내여야 한다
+    dongs = {f"동{i}": ((37.40 + i * 0.01, 126.90 + i * 0.01), [5.0, 5.0, 5.0]) for i in range(25)}
+    deps = make_deps(dongs=dongs)
+    original = deps.commute
+    calls = []
+
+    async def counting(*a, **kw):
+        calls.append(1)
+        return await original(*a, **kw)
+
+    deps.commute = counting
+    out, _ = await run(req(), deps)
+    assert len(calls) <= 20
+    assert len(out["results"]) == 10

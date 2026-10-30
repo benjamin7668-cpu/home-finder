@@ -23,7 +23,7 @@ from app.recommend import (
 from app.regions import Sgg, capital_area_sggs
 from app.sources import kakao, molit, odsay
 
-DISTANCE_TOP = 30
+DISTANCE_TOP = 10  # ODsay 무료 한도(하루 30회) 안에서 새 직장 조합 1회 검색 = 최대 20회
 INFRA_TOP = 15
 RESULT_TOP = 10
 CONCURRENCY = 10
