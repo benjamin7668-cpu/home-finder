@@ -105,3 +105,30 @@ async def test_fetch_all_reports_failed_sgg(tmp_path, monkeypatch):
     assert attempts["41135"] == 3  # 최초 1회 + 재시도 2회
     assert len(trades) == 4
     assert progress[-1] == (2, 2)
+
+
+async def test_fetch_all_spaces_requests(tmp_path, monkeypatch):
+    import time
+    monkeypatch.setattr("app.sources.molit.MIN_INTERVAL", 0.05)
+    starts = []
+
+    def handler(request):
+        starts.append(time.monotonic())
+        return httpx.Response(200, content=FIXTURE.encode("utf-8"))
+
+    sggs = [Sgg(f"1{i:04d}", "x") for i in range(6)]
+    async with _client(handler) as client:
+        await fetch_all(client, Cache(tmp_path / "c.sqlite"), "K", sggs, TODAY, lambda d, t: None, months=1)
+    gaps = [b - a for a, b in zip(starts, starts[1:])]
+    assert len(starts) == 6 and min(gaps) >= 0.045  # 동시에 몰리지 않고 간격을 둔다
+
+
+async def test_fetch_all_waits_out_rate_limit(tmp_path, monkeypatch):
+    monkeypatch.setattr("app.sources.molit.MIN_INTERVAL", 0)
+    monkeypatch.setattr("app.sources.molit.RATE_LIMIT_WAIT", 0)
+    monkeypatch.setattr("app.sources.molit.RETRY_DELAYS", ())  # 일반 재시도 없이도 429는 기다렸다 재시도
+    responses = [httpx.Response(429), httpx.Response(200, content=FIXTURE.encode("utf-8"))]
+    async with _client(lambda r: responses.pop(0)) as client:
+        trades, failed = await fetch_all(
+            client, Cache(tmp_path / "c.sqlite"), "K", [Sgg("11680", "x")], TODAY, lambda d, t: None, months=1)
+    assert failed == [] and len(trades) == 4
