@@ -63,3 +63,47 @@ def test_request_validation():
         req(budget_eok=0)
     with pytest.raises(ValueError):
         req(band="100")
+
+
+async def test_pipeline_geocode_unexpected_shape_skips_dong():
+    deps = make_deps()
+    original = deps.geocode
+
+    async def geocode(client, cache, key, query, limit=5):
+        if query.endswith("동1"):
+            raise KeyError("documents")
+        return await original(client, cache, key, query, limit)
+
+    deps.geocode = geocode
+    out, _ = await run(req(), deps)
+    assert len(out["results"]) == 4 and out["notes"]["geocode_failed"] == 1
+
+
+async def test_pipeline_infra_unexpected_shape_keeps_candidate():
+    deps = make_deps()
+
+    async def infra_counts(*a, **kw):
+        raise KeyError("meta")
+
+    deps.infra_counts = infra_counts
+    out, _ = await run(req(), deps)
+    assert len(out["results"]) == 5 and all(r["infra"] is None for r in out["results"])
+
+
+async def test_pipeline_all_sggs_failed_is_key_error_message():
+    deps = make_deps()
+
+    async def fetch_all(client, cache, key, sggs, today, on_progress, months=12):
+        return [], [g.code for g in sggs]
+
+    deps.fetch_all = fetch_all
+    with pytest.raises(PipelineError, match="DATA_GO_KR_API_KEY"):
+        await run(req(), deps)
+
+
+async def test_pipeline_reports_districts_with_no_trades():
+    from app.regions import Sgg
+    deps = make_deps()
+    deps.sggs = deps.sggs + [Sgg("28110", "인천광역시 중구")]
+    out, _ = await run(req(), deps)
+    assert out["notes"]["empty_sggs"] == ["인천광역시 중구"]

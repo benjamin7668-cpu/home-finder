@@ -94,6 +94,7 @@ async function findWork(box) {
   if (q === box.dataset.lastQuery) return; // 엔터·변경·버튼이 겹쳐도 한 번만 검색
   box.dataset.lastQuery = q;
   state.work[who] = null;
+  updateSubmit(); // 검색이 끝나기 전에 추천 버튼을 누르지 못하게
   pick.hidden = true;
   if (!q) return updateSubmit();
   picked.textContent = "검색 중…";
@@ -107,7 +108,12 @@ async function findWork(box) {
     pick.innerHTML = '<option value="">여러 곳이 검색됐습니다. 선택하세요</option>' +
       list.map((p, i) => `<option value="${i}">${esc(p.name)} · ${esc(p.address)}</option>`).join("");
     pick.hidden = false;
-    pick.onchange = () => { if (pick.value !== "") setWork(box, list[Number(pick.value)]); };
+    pick.onchange = () => {
+      if (pick.value !== "") return setWork(box, list[Number(pick.value)]);
+      state.work[who] = null;
+      $(".work-picked", box).textContent = "";
+      updateSubmit();
+    };
     picked.textContent = "";
   } catch (e) {
     picked.textContent = e.message;
@@ -129,6 +135,7 @@ function updateSubmit() {
 /* ---------- 추천 요청 (SSE) ---------- */
 async function recommend(ev) {
   ev.preventDefault();
+  if (!(state.work.a && state.work.b)) return updateSubmit();
   const progress = $("#progress");
   progress.className = "progress";
   progress.textContent = "준비 중…";
@@ -213,7 +220,8 @@ function renderResults() {
 function renderNotes() {
   const n = state.data.notes;
   const items = [];
-  if (n.failed_sggs.length) items.push(`실거래가를 받지 못한 시·군·구 ${n.failed_sggs.length}곳 (${n.failed_sggs.join(", ")})`);
+  if (n.failed_sggs.length) items.push(`실거래가를 받지 못한 시·군·구 ${n.failed_sggs.length}곳 (${n.failed_sggs.map(esc).join(", ")})`);
+  if (n.empty_sggs.length) items.push(`12개월 동안 아파트 거래가 0건인 시·군·구 ${n.empty_sggs.length}곳 (${n.empty_sggs.map(esc).join(", ")})`);
   if (n.low_deal_excluded) items.push(`최근 6개월 거래가 3건 미만이라 제외한 동네 ${n.low_deal_excluded}곳`);
   if (n.geocode_failed) items.push(`위치를 찾지 못해 제외한 동네 ${n.geocode_failed}곳`);
   if (n.commute_unavailable) items.push(`통근 시간 확인 불가로 제외한 동네 ${n.commute_unavailable}곳`);

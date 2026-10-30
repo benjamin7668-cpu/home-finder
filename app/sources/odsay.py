@@ -53,8 +53,10 @@ async def commute(
         )
         resp.raise_for_status()
         body = resp.json()
+    except httpx.HTTPStatusError as e:  # 메시지에 apiKey가 든 URL을 남기지 않는다
+        raise CommuteUnavailable(f"ODsay HTTP {e.response.status_code}") from None
     except (httpx.HTTPError, ValueError) as e:
-        raise CommuteUnavailable(f"ODsay 호출 실패: {e}") from e
+        raise CommuteUnavailable(f"ODsay 호출 실패: {type(e).__name__}") from None
 
     err = _error_code(body)
     if err and err[0] == TOO_CLOSE_CODE:
@@ -63,13 +65,16 @@ async def commute(
     elif err:
         raise CommuteUnavailable(f"ODsay 오류 {err[0]}: {err[1]}")
     else:
-        paths = body.get("result", {}).get("path") or []
-        if not paths:
-            raise CommuteUnavailable("ODsay 경로 없음")
-        best = min(paths, key=lambda p: p["info"]["totalTime"])
-        info = best["info"]
-        transfers = max(info.get("busTransitCount", 0) + info.get("subwayTransitCount", 0) - 1, 0)
-        result = Commute(int(info["totalTime"]), transfers, _summary(best), False)
+        try:
+            paths = body.get("result", {}).get("path") or []
+            if not paths:
+                raise CommuteUnavailable("ODsay 경로 없음")
+            best = min(paths, key=lambda p: p["info"]["totalTime"])
+            info = best["info"]
+            transfers = max(info.get("busTransitCount", 0) + info.get("subwayTransitCount", 0) - 1, 0)
+            result = Commute(int(info["totalTime"]), transfers, _summary(best), False)
+        except (KeyError, TypeError, ValueError, AttributeError) as e:  # 예상과 다른 응답 형식
+            raise CommuteUnavailable(f"ODsay 응답 형식 오류: {type(e).__name__}") from None
 
     cache.set(cache_key, asdict(result), ttl=COMMUTE_TTL)
     return result

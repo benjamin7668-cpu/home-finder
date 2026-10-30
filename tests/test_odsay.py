@@ -76,3 +76,17 @@ async def test_commute_failure_not_cached_success_cached(tmp_path):
         assert (await commute(c, cache, "K", SEOUL_STN, GANGNAM)).minutes == 27
         assert (await commute(c, cache, "K", (37.55471, 126.97069), GANGNAM)).minutes == 27  # 소수 셋째 자리 같음
     assert len(calls) == 2
+
+
+async def test_commute_unexpected_shape_raises_unavailable(tmp_path):
+    body = {"result": {"path": [{"subPath": []}]}}  # info 없음
+    async with _client(lambda r: httpx.Response(200, json=body)) as c:
+        with pytest.raises(CommuteUnavailable):
+            await commute(c, Cache(tmp_path / "c.sqlite"), "K", SEOUL_STN, GANGNAM)
+
+
+async def test_commute_error_message_hides_key(tmp_path):
+    async with _client(lambda r: httpx.Response(500)) as c:
+        with pytest.raises(CommuteUnavailable) as e:
+            await commute(c, Cache(tmp_path / "c.sqlite"), "SECRETKEY", SEOUL_STN, GANGNAM)
+    assert "SECRETKEY" not in str(e.value)

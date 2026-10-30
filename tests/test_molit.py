@@ -59,7 +59,7 @@ def _client(handler):
     return httpx.AsyncClient(transport=httpx.MockTransport(handler))
 
 
-async def test_fetch_month_caches_past_month_forever(tmp_path):
+async def test_fetch_month_caches_settled_month_forever(tmp_path):
     calls = []
 
     def handler(request):
@@ -68,20 +68,24 @@ async def test_fetch_month_caches_past_month_forever(tmp_path):
 
     cache = Cache(tmp_path / "c.sqlite")
     async with _client(handler) as client:
-        a = await fetch_month(client, cache, "K", "11680", "202609", TODAY)
-        b = await fetch_month(client, cache, "K", "11680", "202609", TODAY)
-    assert calls == ["202609"]
+        a = await fetch_month(client, cache, "K", "11680", "202608", TODAY)
+        b = await fetch_month(client, cache, "K", "11680", "202608", TODAY)
+    assert calls == ["202608"]
     assert a == b and len(a) == 4
-    row = cache._conn.execute("SELECT ttl FROM cache WHERE key='molit:11680:202609'").fetchone()
+    row = cache._conn.execute("SELECT ttl FROM cache WHERE key='molit:11680:202608'").fetchone()
     assert row[0] is None
 
 
-async def test_fetch_month_current_month_ttl_one_day(tmp_path):
+async def test_fetch_month_recent_months_ttl_one_day(tmp_path):
+    # 신고 기한(30일)과 해제 신고가 남은 이번 달·지난달은 계속 갱신한다
     cache = Cache(tmp_path / "c.sqlite")
     async with _client(lambda r: httpx.Response(200, content=FIXTURE.encode("utf-8"))) as client:
-        await fetch_month(client, cache, "K", "11680", "202610", TODAY)
-    row = cache._conn.execute("SELECT ttl FROM cache WHERE key='molit:11680:202610'").fetchone()
-    assert row[0] == 86400
+        for m in ("202610", "202609", "202608"):
+            await fetch_month(client, cache, "K", "11680", m, TODAY)
+    ttl = dict(cache._conn.execute("SELECT key, ttl FROM cache").fetchall())
+    assert ttl["molit:11680:202610"] == 86400
+    assert ttl["molit:11680:202609"] == 86400
+    assert ttl["molit:11680:202608"] is None
 
 
 async def test_fetch_all_reports_failed_sgg(tmp_path, monkeypatch):
@@ -132,3 +136,24 @@ async def test_fetch_all_waits_out_rate_limit(tmp_path, monkeypatch):
         trades, failed = await fetch_all(
             client, Cache(tmp_path / "c.sqlite"), "K", [Sgg("11680", "x")], TODAY, lambda d, t: None, months=1)
     assert failed == [] and len(trades) == 4
+
+
+def test_parse_trades_skips_malformed_row():
+    broken = FIXTURE.replace("<excluUseAr>136.68</excluUseAr>", "<excluUseAr> </excluUseAr>", 1)
+    ts = parse_trades(broken, "11680")
+    assert len(ts) == 3 and 136.68 not in {t.area_m2 for t in ts}
+
+
+async def test_fetch_all_isolates_unexpected_error(tmp_path, monkeypatch):
+    monkeypatch.setattr("app.sources.molit.RETRY_DELAYS", ())
+    monkeypatch.setattr("app.sources.molit.MIN_INTERVAL", 0)
+
+    def handler(request):
+        if request.url.params["LAWD_CD"] == "41135":
+            return httpx.Response(200, content=bytes([0xFF, 0xFE]) + b" not utf-8")
+        return httpx.Response(200, content=FIXTURE.encode("utf-8"))
+
+    sggs = [Sgg("11680", "a"), Sgg("41135", "b")]
+    async with _client(handler) as client:
+        trades, failed = await fetch_all(client, Cache(tmp_path / "c.sqlite"), "K", sggs, TODAY, lambda d, t: None, months=1)
+    assert failed == ["41135"] and len(trades) == 4

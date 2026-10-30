@@ -34,6 +34,8 @@ REQUIRED_KEYS = {
 }
 
 Emit = Callable[[str, dict], None]
+# 한 동네의 외부 응답이 이상해도 그 동네만 빠지게 한다
+PER_ITEM_ERRORS = (httpx.HTTPError, KeyError, TypeError, ValueError)
 
 
 class PipelineError(Exception):
@@ -99,13 +101,17 @@ async def run_recommend(req: RecommendRequest, deps: Deps, emit: Emit) -> dict[s
         deps.client, deps.cache, s.data_go_kr_key, deps.sggs, deps.today,
         on_progress=lambda done, total: emit("progress", {"stage": "molit", "done": done, "total": total}),
     )
+    if deps.sggs and len(failed_sggs) == len(deps.sggs):
+        raise PipelineError("실거래가를 받지 못했습니다 (DATA_GO_KR_API_KEY와 공공데이터포털 활용신청을 확인하세요)")
     names = {g.code: g.name for g in deps.sggs}
+    with_trades = {t.sgg_code for t in trades}
+    empty_sggs = [g.name for g in deps.sggs if g.code not in with_trades and g.code not in failed_sggs]
     budget = budget_filter(aggregate(trades, req.band, months, names), req.budget_eok)
 
     async def locate(stat):
         try:
             places = await deps.geocode(deps.client, deps.cache, s.kakao_rest_key, stat.name)
-        except httpx.HTTPError:
+        except PER_ITEM_ERRORS:
             return None
         return (stat, (places[0].lat, places[0].lng)) if places else None
 
@@ -134,7 +140,7 @@ async def run_recommend(req: RecommendRequest, deps: Deps, emit: Emit) -> dict[s
         stat, coord, a, b = item
         try:
             infra = await deps.infra_counts(deps.client, deps.cache, s.kakao_rest_key, stat.key, *coord)
-        except httpx.HTTPError:
+        except PER_ITEM_ERRORS:
             infra = None
         return Candidate(stat, coord, a, b, infra)
 
@@ -143,7 +149,8 @@ async def run_recommend(req: RecommendRequest, deps: Deps, emit: Emit) -> dict[s
     return {
         "results": score(candidates, req.budget_eok)[:RESULT_TOP],
         "notes": {
-            "failed_sggs": failed_sggs,
+            "failed_sggs": [names.get(c, c) for c in failed_sggs],
+            "empty_sggs": empty_sggs,
             "low_deal_excluded": budget.low_deal_excluded,
             "geocode_failed": len(located) - len(with_coord),
             "commute_unavailable": unavailable,

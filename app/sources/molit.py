@@ -73,9 +73,21 @@ def _parse(xml: str) -> tuple[list[ET.Element], int]:
     return root.findall("body/items/item"), total
 
 
+def _to_trades(items: list[ET.Element], sgg_code: str) -> list[Trade]:
+    trades = []
+    for item in items:
+        if _text(item, "cdealType") == "O":  # 해제된 거래
+            continue
+        try:
+            trades.append(_to_trade(item, sgg_code))
+        except ValueError:  # 면적·금액 등이 비어 있는 행은 건너뛴다
+            continue
+    return trades
+
+
 def parse_trades(xml: str, sgg_code: str) -> list[Trade]:
     items, _ = _parse(xml)
-    return [_to_trade(item, sgg_code) for item in items if _text(item, "cdealType") != "O"]
+    return _to_trades(items, sgg_code)
 
 
 def _to_trade(item: ET.Element, sgg_code: str) -> Trade:
@@ -130,12 +142,14 @@ async def fetch_month(
             raise RateLimited(sgg_code)
         resp.raise_for_status()
         items, total = _parse(resp.content.decode("utf-8"))
-        trades += [_to_trade(i, sgg_code) for i in items if _text(i, "cdealType") != "O"]
+        trades += _to_trades(items, sgg_code)
         if page * PAGE_SIZE >= total:
             break
         page += 1
 
-    ttl = None if yyyymm < f"{today.year:04d}{today.month:02d}" else CURRENT_MONTH_TTL
+    # 신고 기한(30일)과 해제 신고가 지나 확정된 달(두 달 전 이전)만 영구 보관한다
+    settled = recent_months(today, 3)[0]
+    ttl = None if yyyymm <= settled else CURRENT_MONTH_TTL
     cache.set(cache_key, [asdict(t) for t in trades], ttl=ttl)
     return trades
 
@@ -153,7 +167,7 @@ async def _fetch_sgg(client, cache, key, sgg_code, months, today, pacer) -> list
                 if limited > RATE_LIMIT_RETRIES:
                     raise
                 await asyncio.sleep(RATE_LIMIT_WAIT)
-            except (httpx.HTTPError, RuntimeError, ET.ParseError):
+            except (httpx.HTTPError, RuntimeError, ET.ParseError, ValueError):
                 if failures >= len(RETRY_DELAYS):
                     raise
                 await asyncio.sleep(RETRY_DELAYS[failures])
@@ -182,7 +196,7 @@ async def fetch_all(
         async with semaphore:
             try:
                 trades.extend(await _fetch_sgg(client, cache, key, sgg.code, month_list, today, pacer))
-            except (httpx.HTTPError, RuntimeError, ET.ParseError, RateLimited):
+            except (httpx.HTTPError, RuntimeError, ET.ParseError, ValueError, RateLimited):
                 failed.append(sgg.code)
         done += 1
         on_progress(done, len(sggs))
