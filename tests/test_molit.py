@@ -5,6 +5,7 @@ import httpx
 import pytest
 
 from app.cache import Cache
+from app.pacing import Pacer
 from app.regions import Sgg
 from app.sources.molit import (
     _to_eok,
@@ -113,7 +114,7 @@ async def test_fetch_all_reports_failed_sgg(tmp_path, monkeypatch):
 
 async def test_fetch_all_spaces_requests(tmp_path, monkeypatch):
     import time
-    monkeypatch.setattr("app.sources.molit.MIN_INTERVAL", 0.05)
+    monkeypatch.setattr("app.sources.molit.PACER", Pacer(0.05))
     starts = []
 
     def handler(request):
@@ -128,7 +129,7 @@ async def test_fetch_all_spaces_requests(tmp_path, monkeypatch):
 
 
 async def test_fetch_all_waits_out_rate_limit(tmp_path, monkeypatch):
-    monkeypatch.setattr("app.sources.molit.MIN_INTERVAL", 0)
+    monkeypatch.setattr("app.sources.molit.PACER", Pacer(0))
     monkeypatch.setattr("app.sources.molit.RATE_LIMIT_WAIT", 0)
     monkeypatch.setattr("app.sources.molit.RETRY_DELAYS", ())  # 일반 재시도 없이도 429는 기다렸다 재시도
     responses = [httpx.Response(429), httpx.Response(200, content=FIXTURE.encode("utf-8"))]
@@ -146,7 +147,7 @@ def test_parse_trades_skips_malformed_row():
 
 async def test_fetch_all_isolates_unexpected_error(tmp_path, monkeypatch):
     monkeypatch.setattr("app.sources.molit.RETRY_DELAYS", ())
-    monkeypatch.setattr("app.sources.molit.MIN_INTERVAL", 0)
+    monkeypatch.setattr("app.sources.molit.PACER", Pacer(0))
 
     def handler(request):
         if request.url.params["LAWD_CD"] == "41135":

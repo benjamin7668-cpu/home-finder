@@ -90,3 +90,58 @@ async def test_commute_error_message_hides_key(tmp_path):
         with pytest.raises(CommuteUnavailable) as e:
             await commute(c, Cache(tmp_path / "c.sqlite"), "SECRETKEY", SEOUL_STN, GANGNAM)
     assert "SECRETKEY" not in str(e.value)
+
+
+async def test_commute_waits_out_429_then_succeeds(tmp_path, monkeypatch):
+    monkeypatch.setattr("app.sources.odsay.RATE_LIMIT_WAIT", 0)
+    responses = [httpx.Response(200, json={"error": {"code": "429", "message": "Too Many Requests"}}),
+                 httpx.Response(200, json=SAMPLE)]
+    async with _client(lambda r: responses.pop(0)) as c:
+        out = await commute(c, Cache(tmp_path / "c.sqlite"), "K", SEOUL_STN, GANGNAM)
+    assert out.minutes == 27
+
+
+async def test_commute_429_gives_up_after_retries(tmp_path, monkeypatch):
+    monkeypatch.setattr("app.sources.odsay.RATE_LIMIT_WAIT", 0)
+    calls = []
+
+    def handler(r):
+        calls.append(1)
+        return httpx.Response(200, json={"error": {"code": "429", "message": "Too Many Requests"}})
+
+    async with _client(handler) as c:
+        with pytest.raises(CommuteUnavailable):
+            await commute(c, Cache(tmp_path / "c.sqlite"), "K", SEOUL_STN, GANGNAM)
+    assert len(calls) == 4  # 최초 + 재시도 3회
+
+
+async def test_commute_requests_are_paced(tmp_path, monkeypatch):
+    import asyncio
+    import time
+    from app.pacing import Pacer
+    monkeypatch.setattr("app.sources.odsay.PACER", Pacer(0.05))
+    starts = []
+
+    def handler(r):
+        starts.append(time.monotonic())
+        return httpx.Response(200, json=SAMPLE)
+
+    cache = Cache(tmp_path / "c.sqlite")
+    async with _client(handler) as c:
+        await asyncio.gather(*(commute(c, cache, "K", (37.5 + i * 0.01, 127.0), GANGNAM) for i in range(4)))
+    gaps = [b - a for a, b in zip(starts, starts[1:])]
+    assert len(starts) == 4 and min(gaps) >= 0.045
+
+
+async def test_commute_daily_quota_does_not_retry(tmp_path, monkeypatch):
+    monkeypatch.setattr("app.sources.odsay.RATE_LIMIT_WAIT", 0)
+    calls = []
+
+    def handler(r):
+        calls.append(1)
+        return httpx.Response(200, json={"error": [{"code": "429", "message": "Daily quota exceeded"}]})
+
+    async with _client(handler) as c:
+        with pytest.raises(CommuteUnavailable, match="하루 호출 한도"):
+            await commute(c, Cache(tmp_path / "c.sqlite"), "K", SEOUL_STN, GANGNAM)
+    assert len(calls) == 1  # 하루 한도는 기다려도 안 풀리므로 재시도로 호출량을 낭비하지 않는다
