@@ -1,0 +1,13 @@
+{"result": {"searchType": 0, "path": [
+  {"pathType": 1, "info": {"totalTime": 31, "busTransitCount": 0, "subwayTransitCount": 2},
+   "subPath": [
+     {"trafficType": 3, "sectionTime": 3},
+     {"trafficType": 1, "sectionTime": 10, "lane": [{"name": "수도권 1호선"}]},
+     {"trafficType": 1, "sectionTime": 15, "lane": [{"name": "수도권 2호선"}]},
+     {"trafficType": 3, "sectionTime": 3}]},
+  {"pathType": 2, "info": {"totalTime": 27, "busTransitCount": 1, "subwayTransitCount": 0},
+   "subPath": [
+     {"trafficType": 3, "sectionTime": 2},
+     {"trafficType": 2, "sectionTime": 23, "lane": [{"busNo": "140"}]},
+     {"trafficType": 3, "sectionTime": 2}]}
+]}}
