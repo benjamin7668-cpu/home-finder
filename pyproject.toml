@@ -8,6 +8,7 @@ dependencies = [
     "uvicorn>=0.30",
     "httpx>=0.27",
     "python-dotenv>=1.0",
+    "pydantic>=2.14.2",
 ]
 
 [dependency-groups]
@@ -24,3 +25,4 @@ asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
 markers = ["live: 실제 API 호출"]
 addopts = "-m 'not live'"
+filterwarnings = ["ignore:Using `httpx` with `starlette.testclient`"]

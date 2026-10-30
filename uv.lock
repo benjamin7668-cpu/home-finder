@@ -93,6 +93,7 @@ source = { virtual = "." }
 dependencies = [
     { name = "fastapi" },
     { name = "httpx" },
+    { name = "pydantic" },
     { name = "python-dotenv" },
     { name = "uvicorn" },
 ]
@@ -107,6 +108,7 @@ dev = [
 requires-dist = [
     { name = "fastapi", specifier = ">=0.115" },
     { name = "httpx", specifier = ">=0.27" },
+    { name = "pydantic", specifier = ">=2.14.2" },
     { name = "python-dotenv", specifier = ">=1.0" },
     { name = "uvicorn", specifier = ">=0.30" },
 ]
