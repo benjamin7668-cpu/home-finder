@@ -1,2 +1,82 @@
 <!doctype html>
-<html lang="ko"><head><meta charset="utf-8"><title>우리 집 어디로?</title></head><body></body></html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>우리 집 어디로?</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E%F0%9F%8F%A0%3C/text%3E%3C/svg%3E">
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <div id="warning" class="warning" hidden></div>
+  <div class="layout">
+    <aside class="panel">
+      <header class="brand">
+        <h1>우리 집 어디로?</h1>
+        <p>부부 직장과 예산으로 찾는 수도권 내 집 마련 동네</p>
+      </header>
+
+      <form id="form" class="form" autocomplete="off">
+        <label class="field">
+          <span>예산</span>
+          <span class="inline"><input id="budget" type="number" min="0.5" step="0.5" value="8" required> 억 원</span>
+        </label>
+
+        <fieldset class="field">
+          <legend>전용면적</legend>
+          <div class="segmented">
+            <label><input type="radio" name="band" value="59" checked><span>59㎡형</span></label>
+            <label><input type="radio" name="band" value="84"><span>84㎡형</span></label>
+            <label><input type="radio" name="band" value="all"><span>전체</span></label>
+          </div>
+        </fieldset>
+
+        <div class="field work" data-who="a">
+          <span>직장 A</span>
+          <div class="inline">
+            <input class="work-q" type="text" placeholder="예: 강남역, 테헤란로 152" required>
+            <button type="button" class="ghost work-find">찾기</button>
+          </div>
+          <select class="work-pick" hidden></select>
+          <small class="work-picked"></small>
+        </div>
+
+        <div class="field work" data-who="b">
+          <span>직장 B</span>
+          <div class="inline">
+            <input class="work-q" type="text" placeholder="예: 상암DMC, 마포구 월드컵북로" required>
+            <button type="button" class="ghost work-find">찾기</button>
+          </div>
+          <select class="work-pick" hidden></select>
+          <small class="work-picked"></small>
+        </div>
+
+        <div class="field">
+          <span>최대 통근 시간</span>
+          <span class="inline">A <input id="max-a" type="number" min="10" max="180" value="60"> 분
+            · B <input id="max-b" type="number" min="10" max="180" value="60"> 분</span>
+        </div>
+
+        <button id="submit" type="submit" class="primary" disabled>추천 받기</button>
+        <p id="progress" class="progress" aria-live="polite"></p>
+      </form>
+
+      <section id="weights" class="weights" hidden>
+        <h2>비중 조절</h2>
+        <label>통근 <input type="range" min="0" max="100" value="50" data-w="commute"><output>50</output></label>
+        <label>인프라 <input type="range" min="0" max="100" value="30" data-w="infra"><output>30</output></label>
+        <label>예산 여유 <input type="range" min="0" max="100" value="20" data-w="budget"><output>20</output></label>
+      </section>
+
+      <section id="notes" class="notes" hidden></section>
+      <ol id="results" class="results"></ol>
+    </aside>
+
+    <main class="map-wrap">
+      <div id="map" class="map"><p class="map-empty">지도를 불러오는 중…</p></div>
+      <section id="detail" class="detail" hidden></section>
+    </main>
+  </div>
+  <script src="/static/app.js"></script>
+</body>
+</html>
