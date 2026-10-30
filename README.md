@@ -5,7 +5,7 @@
 
 ![데스크톱 화면](docs/screenshots/desktop.png)
 
-> 스크린샷은 가짜 데이터로 띄운 화면입니다. 지도는 `KAKAO_JS_KEY`를 넣으면 표시됩니다.
+> 스크린샷은 가짜 데이터로 띄운 화면입니다. 지도는 카카오 지도로 표시하고, 카카오 키·도메인 설정이 안 돼 있으면 OpenStreetMap으로 대신 표시합니다.
 
 ## 무엇을 보여 주나
 - **추천 동네 10곳**: 통근·인프라·예산 여유 점수를 합친 종합 순위 (비중은 슬라이더로 조절)
@@ -29,7 +29,7 @@
 | `DATA_GO_KR_API_KEY` | 아파트 매매 실거래가 | [공공데이터포털](https://www.data.go.kr) → "국토교통부 아파트 매매 실거래가 자료" 활용신청 |
 | `ODSAY_API_KEY` | 대중교통 길찾기 | [ODsay LAB](https://lab.odsay.com) 가입 → 서버용 키 발급, 호출 IP 등록 |
 | `KAKAO_REST_API_KEY` | 주소 검색, 주변 시설 | [Kakao Developers](https://developers.kakao.com) → 앱 만들기 → REST API 키 |
-| `KAKAO_JS_KEY` | 지도 표시 | 같은 앱의 JavaScript 키, 플랫폼 → Web 사이트 도메인에 `http://localhost:8000` 등록 |
+| `KAKAO_JS_KEY` | 카카오 지도 표시 (없거나 도메인 미등록이면 OpenStreetMap으로 대체) | 같은 앱의 JavaScript 키, 플랫폼 → Web 사이트 도메인에 `http://localhost:8000` 등록 |
 
 `KAKAO_JS_KEY`만 브라우저로 전달되고(도메인 제한으로 보호), 나머지 키는 서버에만 있습니다.
 

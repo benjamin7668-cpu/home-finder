@@ -41,6 +41,14 @@ def create_app(settings: Settings | None = None, make_deps: Callable[[FastAPI], 
     app = FastAPI(title="우리 집 어디로?", lifespan=lifespan)
     app.mount("/static", StaticFiles(directory=STATIC), name="static")
 
+    @app.middleware("http")
+    async def revalidate_assets(request, call_next):
+        # 코드를 업데이트하면 브라우저가 캐시된 예전 화면 대신 새 파일을 받도록 매번 재검증한다
+        response = await call_next(request)
+        if request.url.path == "/" or request.url.path.startswith("/static/"):
+            response.headers["Cache-Control"] = "no-cache"
+        return response
+
     @app.get("/")
     async def index():
         return FileResponse(STATIC / "index.html")

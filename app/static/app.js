@@ -27,21 +27,95 @@ function recomputeTotals(results, weights) {
 }
 
 /* ---------- 지도 ---------- */
-const map = { obj: null, overlays: [], circle: null };
+// map.api: 카카오 또는 Leaflet(OpenStreetMap) 위에 같은 함수(clear/pin/fit/focus)를 제공한다
+const map = { api: null };
+const LEAFLET = "https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet";
 
-function loadKakao(key) {
-  if (!key) {
-    $("#map").innerHTML = '<p class="map-empty">KAKAO_JS_KEY 없음: 지도를 표시할 수 없습니다. 추천 목록은 그대로 사용할 수 있습니다.</p>';
-    return;
-  }
-  const s = document.createElement("script");
-  s.src = `https://dapi.kakao.com/v2/maps/sdk.js?appkey=${encodeURIComponent(key)}&autoload=false`;
-  s.onload = () => kakao.maps.load(() => {
-    $("#map").innerHTML = "";
-    map.obj = new kakao.maps.Map($("#map"), { center: new kakao.maps.LatLng(37.5, 127.0), level: 9 });
+function loadScript(src) {
+  return new Promise((resolve, reject) => {
+    const s = document.createElement("script");
+    s.src = src;
+    s.onload = resolve;
+    s.onerror = reject;
+    document.head.appendChild(s);
   });
-  s.onerror = () => { $("#map").innerHTML = '<p class="map-empty">카카오 지도 SDK를 불러오지 못했습니다. JavaScript 키와 Web 도메인(http://localhost:8000) 등록을 확인하세요.</p>'; };
-  document.head.appendChild(s);
+}
+
+function kakaoApi() {
+  const obj = new kakao.maps.Map($("#map"), { center: new kakao.maps.LatLng(37.5, 127.0), level: 9 });
+  let overlays = [], circle = null;
+  return {
+    clear() { overlays.forEach((o) => o.setMap(null)); overlays = []; },
+    pin(lat, lng, el) {
+      const ov = new kakao.maps.CustomOverlay({ position: new kakao.maps.LatLng(lat, lng), content: el, yAnchor: 0.5 });
+      ov.setMap(obj);
+      overlays.push(ov);
+    },
+    fit() {
+      if (!overlays.length) return;
+      const bounds = new kakao.maps.LatLngBounds();
+      overlays.forEach((o) => bounds.extend(o.getPosition()));
+      obj.setBounds(bounds);
+    },
+    focus(lat, lng) {
+      const pos = new kakao.maps.LatLng(lat, lng);
+      if (circle) circle.setMap(null);
+      circle = new kakao.maps.Circle({ center: pos, radius: 1000, strokeWeight: 2, strokeColor: "#2563eb", strokeOpacity: 0.8, fillColor: "#2563eb", fillOpacity: 0.08 });
+      circle.setMap(obj);
+      obj.setLevel(6);
+      obj.panTo(pos);
+    },
+  };
+}
+
+function leafletApi() {
+  const obj = L.map($("#map")).setView([37.5, 127.0], 10);
+  L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
+    maxZoom: 19, attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
+  }).addTo(obj);
+  let markers = [], circle = null;
+  return {
+    clear() { markers.forEach((m) => m.remove()); markers = []; },
+    pin(lat, lng, el) {
+      const icon = L.divIcon({ html: el, className: "", iconSize: null });
+      markers.push(L.marker([lat, lng], { icon }).addTo(obj));
+    },
+    fit() { if (markers.length) obj.fitBounds(L.featureGroup(markers).getBounds(), { padding: [40, 40] }); },
+    focus(lat, lng) {
+      if (circle) circle.remove();
+      circle = L.circle([lat, lng], { radius: 1000, weight: 2, color: "#2563eb", opacity: 0.8, fillOpacity: 0.08 }).addTo(obj);
+      obj.setView([lat, lng], 15);
+    },
+  };
+}
+
+async function loadLeaflet() {
+  const css = document.createElement("link");
+  css.rel = "stylesheet";
+  css.href = `${LEAFLET}.css`;
+  document.head.appendChild(css);
+  await loadScript(`${LEAFLET}.js`);
+  return leafletApi();
+}
+
+async function loadMap(key) {
+  try {
+    if (!key) throw new Error("no key");
+    await loadScript(`https://dapi.kakao.com/v2/maps/sdk.js?appkey=${encodeURIComponent(key)}&autoload=false`);
+    await new Promise((resolve) => kakao.maps.load(resolve));
+    $("#map").innerHTML = "";
+    map.api = kakaoApi();
+  } catch {
+    // 카카오 키가 없거나 도메인이 등록되지 않았으면 키가 필요 없는 OpenStreetMap으로 대신 그린다
+    try {
+      $("#map").innerHTML = "";
+      map.api = await loadLeaflet();
+    } catch {
+      $("#map").innerHTML = '<p class="map-empty">지도를 불러오지 못했습니다. 인터넷 연결을 확인하세요. 추천 목록은 그대로 사용할 수 있습니다.</p>';
+      return;
+    }
+  }
+  drawMap();
 }
 
 function scoreColor(total) {
@@ -50,20 +124,14 @@ function scoreColor(total) {
 }
 
 function drawMap() {
-  if (!map.obj) return;
-  map.overlays.forEach((o) => o.setMap(null));
-  map.overlays = [];
-  const bounds = new kakao.maps.LatLngBounds();
+  if (!map.api) return;
+  map.api.clear();
   const add = (lat, lng, html, onClick) => {
     const el = document.createElement("div");
     el.innerHTML = html;
     const pin = el.firstElementChild;
     if (onClick) pin.addEventListener("click", onClick);
-    const pos = new kakao.maps.LatLng(lat, lng);
-    const ov = new kakao.maps.CustomOverlay({ position: pos, content: pin, yAnchor: 0.5 });
-    ov.setMap(map.obj);
-    map.overlays.push(ov);
-    bounds.extend(pos);
+    map.api.pin(lat, lng, pin);
   };
   for (const who of ["a", "b"]) {
     const w = state.work[who];
@@ -72,17 +140,11 @@ function drawMap() {
   state.results.forEach((r, i) => {
     add(r.coord.lat, r.coord.lng, `<div class="pin" style="background:${scoreColor(r.scores.total)}" title="${esc(r.name)}">${i + 1}</div>`, () => select(r.key));
   });
-  if (map.overlays.length) map.obj.setBounds(bounds);
+  map.api.fit();
 }
 
 function focusMap(r) {
-  if (!map.obj) return;
-  const pos = new kakao.maps.LatLng(r.coord.lat, r.coord.lng);
-  if (map.circle) map.circle.setMap(null);
-  map.circle = new kakao.maps.Circle({ center: pos, radius: 1000, strokeWeight: 2, strokeColor: "#2563eb", strokeOpacity: 0.8, fillColor: "#2563eb", fillOpacity: 0.08 });
-  map.circle.setMap(map.obj);
-  map.obj.setLevel(6);
-  map.obj.panTo(pos);
+  if (map.api) map.api.focus(r.coord.lat, r.coord.lng);
 }
 
 /* ---------- 직장 주소 ---------- */
@@ -313,9 +375,9 @@ async function init() {
       warn.textContent = `설정되지 않은 키: ${cfg.missing.join(", ")} — 해당 기능을 쓸 수 없습니다. .env 파일을 확인하세요.`;
       warn.hidden = false;
     }
-    loadKakao(cfg.kakao_js_key);
+    loadMap(cfg.kakao_js_key);
   } catch {
-    loadKakao(null);
+    loadMap(null);
   }
   for (const box of document.querySelectorAll(".work")) {
     $(".work-find", box).addEventListener("click", () => findWork(box));

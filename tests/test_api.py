@@ -64,3 +64,10 @@ def test_index_served():
     with client() as c:
         r = c.get("/")
     assert r.status_code == 200 and "<html" in r.text.lower()
+
+
+def test_page_and_static_files_are_revalidated():
+    # 업데이트 뒤 브라우저가 예전 app.js를 캐시로 쓰지 않도록 매번 재검증하게 한다
+    with client() as c:
+        for path in ("/", "/static/app.js", "/static/style.css"):
+            assert c.get(path).headers.get("cache-control") == "no-cache", path

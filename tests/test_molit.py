@@ -123,9 +123,11 @@ async def test_fetch_all_spaces_requests(tmp_path, monkeypatch):
 
     sggs = [Sgg(f"1{i:04d}", "x") for i in range(6)]
     async with _client(handler) as client:
+        t0 = time.monotonic()
         await fetch_all(client, Cache(tmp_path / "c.sqlite"), "K", sggs, TODAY, lambda d, t: None, months=1)
-    gaps = [b - a for a, b in zip(starts, starts[1:])]
-    assert len(starts) == 6 and min(gaps) >= 0.045  # 동시에 몰리지 않고 간격을 둔다
+    # i번째 요청은 시작 후 i×간격 이전에 나가지 않는다 (앞 요청이 늦게 깨어나도 흔들리지 않는 기준)
+    assert len(starts) == 6
+    assert all(s - t0 >= i * 0.05 - 0.005 for i, s in enumerate(sorted(starts)))
 
 
 async def test_fetch_all_waits_out_rate_limit(tmp_path, monkeypatch):
