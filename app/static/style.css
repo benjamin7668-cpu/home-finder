@@ -33,6 +33,7 @@
 }
 
 * { box-sizing: border-box; }
+[hidden] { display: none !important; } /* display를 지정한 요소(.weights 등)도 hidden이면 숨긴다 */
 body {
   margin: 0;
   background: var(--bg);
