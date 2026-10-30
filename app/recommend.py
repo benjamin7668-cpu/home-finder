@@ -12,6 +12,11 @@ from app.sources.molit import Trade, in_band
 DEFAULT_WEIGHTS = {"commute": 0.5, "infra": 0.3, "budget": 0.2}
 # (가중치, 상한)
 INFRA_WEIGHTS = {"subway": (3, 3), "school": (2, 5), "mart": (2, 3), "hospital": (1, 20), "park": (1, 5)}
+INFRA_MAX = sum(w for w, _ in INFRA_WEIGHTS.values())
+# 점수는 후보끼리 비교하지 않고 절대 기준으로 매긴다 (후보가 적어도 꼴찌가 무조건 0점이 되지 않게)
+COMMUTE_BEST, COMMUTE_WORST = 40, 140  # 통근 지표(분): 이하면 100점, 이상이면 0점
+BUDGET_FULL_SLACK = 0.4  # 예산보다 40% 이상 싸면 예산 여유 100점
+TREND_MIN_DEALS = 3  # 가격 변화율: 앞·뒤 6개월 각각 최소 거래 수
 
 
 @dataclass(frozen=True)
@@ -71,7 +76,7 @@ def aggregate(
     trades: list[Trade], band: str, months: list[str], sgg_names: dict[str, str]
 ) -> list[DongStat]:
     yms = [f"{m[:4]}-{m[4:]}" for m in months]
-    recent6, first3, last3 = set(yms[-6:]), set(yms[:3]), set(yms[-3:])
+    recent6, first_half = set(yms[-6:]), set(yms[:6])
 
     by_dong: dict[tuple[str, str], list[Trade]] = defaultdict(list)
     for tr in trades:
@@ -88,9 +93,13 @@ def aggregate(
             by_month[x.ym].append(x.price_eok)
         trend = [{"ym": ym, "median": _median(by_month[ym]), "count": len(by_month[ym])} for ym in yms]
 
-        start = _median([x.price_eok for x in items if x.ym in first3])
-        end = _median([x.price_eok for x in items if x.ym in last3])
-        change = round((end - start) / start * 100, 1) if start and end else None
+        # 앞 6개월 vs 뒤 6개월: 거래가 드문 동네도 변화율이 나오도록 넓게 묶되,
+        # 몇 건뿐이면 단지 구성 차이가 변화율로 보이므로 각 기간 TREND_MIN_DEALS건 이상만 계산
+        before = [x.price_eok for x in items if x.ym in first_half]
+        after = [x.price_eok for x in items if x.ym in recent6]
+        enough = len(before) >= TREND_MIN_DEALS and len(after) >= TREND_MIN_DEALS
+        start, end = _median(before), _median(after)
+        change = round((end - start) / start * 100, 1) if enough and start else None
 
         stats.append(DongStat(f"{sgg}:{dong}", sgg, sgg_names.get(sgg, sgg), dong,
                               _median(recent_prices), len(recent_prices), trend, change))
@@ -122,11 +131,20 @@ def infra_raw(i: Infra) -> float:
     return float(sum(w * min(getattr(i, k), cap) / cap for k, (w, cap) in INFRA_WEIGHTS.items()))
 
 
-def normalize(values: list[float], higher_is_better: bool) -> list[float]:
-    lo, hi = min(values), max(values)
-    if hi == lo:
-        return [100.0] * len(values)
-    return [((v - lo) if higher_is_better else (hi - v)) / (hi - lo) * 100 for v in values]
+def _clamp100(v: float) -> float:
+    return max(0.0, min(100.0, v))
+
+
+def commute_score(metric: float) -> float:
+    return _clamp100((COMMUTE_WORST - metric) / (COMMUTE_WORST - COMMUTE_BEST) * 100)
+
+
+def infra_score(i: Infra) -> float:
+    return infra_raw(i) / INFRA_MAX * 100
+
+
+def budget_score(budget_eok: float, median_eok: float) -> float:
+    return _clamp100((budget_eok - median_eok) / budget_eok / BUDGET_FULL_SLACK * 100)
 
 
 def _commute_dict(c: Commute) -> dict:
@@ -137,14 +155,9 @@ def score(cands: list[Candidate], budget_eok: float, weights: dict | None = None
     if not cands:
         return []
     w = weights or DEFAULT_WEIGHTS
-    commute_s = normalize([commute_metric(c.commute_a, c.commute_b) for c in cands], False)
-    budget_s = normalize([(budget_eok - c.stat.median_6m) / budget_eok for c in cands], True)
-
-    with_infra = [i for i, c in enumerate(cands) if c.infra is not None]
-    infra_s = [0.0] * len(cands)
-    if with_infra:
-        for i, v in zip(with_infra, normalize([infra_raw(cands[i].infra) for i in with_infra], True)):
-            infra_s[i] = v
+    commute_s = [commute_score(commute_metric(c.commute_a, c.commute_b)) for c in cands]
+    budget_s = [budget_score(budget_eok, c.stat.median_6m) for c in cands]
+    infra_s = [infra_score(c.infra) if c.infra is not None else 0.0 for c in cands]
 
     total_w = sum(w.values()) or 1
     results = []

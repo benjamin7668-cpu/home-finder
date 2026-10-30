@@ -10,7 +10,6 @@ from app.recommend import (
     commute_metric,
     haversine_km,
     infra_raw,
-    normalize,
     score,
     top_by_distance,
 )
@@ -53,7 +52,7 @@ def test_aggregate_same_dong_name_different_sgg():
 
 
 def test_trend_change_pct():
-    trades = [t("A", 8.0, ym="2025-11"), t("A", 8.4, ym="2026-10")]
+    trades = [t("A", 8.0, ym="2025-11")] * 3 + [t("A", 8.4, ym="2026-10")] * 3
     [s] = aggregate(trades, "all", MONTHS, NAMES)
     assert s.trend_change_pct == 5.0
 
@@ -99,15 +98,6 @@ def test_infra_raw_caps():
     assert infra_raw(Infra(99, 0, 0, 0, 0)) == 3.0
 
 
-def test_normalize_all_equal():
-    assert normalize([5, 5, 5], True) == [100, 100, 100]
-
-
-def test_normalize_direction():
-    assert normalize([1, 2, 3], False) == [100, 50, 0]
-    assert normalize([1, 2, 3], True) == [0, 50, 100]
-
-
 def _cand(key, a, b, infra, median):
     return Candidate(stat(key, median), (37.5, 127.0),
                      Commute(a, 1, "2호선", False), Commute(b, 0, "6호선", False), infra)
@@ -137,3 +127,41 @@ def test_score_infra_none_scores_zero_infra():
     results = {r["key"]: r for r in score([with_infra, without], 8.0)}
     assert results["11680:B"]["infra"] is None
     assert results["11680:B"]["scores"]["infra"] == 0
+
+
+def test_trend_change_uses_half_year_windows():
+    # 처음·마지막 3개월에 거래가 없어도 앞 6개월(2025-11~2026-04)·뒤 6개월(2026-05~2026-10)에 있으면 계산
+    trades = [t("A", 8.0, ym="2026-02")] * 3 + [t("A", 9.0, ym="2026-06")] * 3
+    [s] = aggregate(trades, "all", MONTHS, NAMES)
+    assert s.trend_change_pct == 12.5
+
+
+def test_trend_change_none_when_half_has_under_3_deals():
+    # 거래 몇 건으로는 단지 구성 차이가 변화율로 보이므로 각 6개월에 3건 이상일 때만 계산
+    trades = [t("A", 8.0, ym="2026-02")] * 2 + [t("A", 9.0, ym="2026-06")] * 5
+    [s] = aggregate(trades, "all", MONTHS, NAMES)
+    assert s.trend_change_pct is None
+
+
+def test_trend_change_none_when_one_half_empty():
+    [s] = aggregate([t("A", 8.0, ym="2026-06"), t("A", 9.0, ym="2026-09")], "all", MONTHS, NAMES)
+    assert s.trend_change_pct is None
+
+
+def test_score_is_absolute_not_relative():
+    # 같은 동네의 점수는 함께 나온 다른 후보에 따라 달라지지 않는다
+    a = _cand("11680:A", 30, 30, Infra(1, 2, 1, 5, 1), 6.4)
+    better = _cand("11680:B", 10, 10, Infra(3, 5, 3, 20, 5), 3.0)
+    alone = score([a], 8.0)[0]["scores"]
+    together = {r["key"]: r["scores"] for r in score([a, better], 8.0)}["11680:A"]
+    assert alone == together
+    # 통근 30/30 → 지표 60분 → 80점, 인프라 2.92/9 → 32점, 예산 여유 20% → 50점
+    assert (alone["commute"], alone["infra"], alone["budget"]) == (80, 32, 50)
+
+
+def test_score_absolute_bounds():
+    best = _cand("11680:A", 15, 15, Infra(3, 5, 3, 20, 5), 1.0)   # 지표 30분, 예산 여유 87%
+    worst = _cand("11680:B", 90, 90, Infra(0, 0, 0, 0, 0), 9.0)   # 지표 180분, 예산 초과
+    s = {r["key"]: r["scores"] for r in score([best, worst], 8.0)}
+    assert (s["11680:A"]["commute"], s["11680:A"]["infra"], s["11680:A"]["budget"]) == (100, 100, 100)
+    assert (s["11680:B"]["commute"], s["11680:B"]["infra"], s["11680:B"]["budget"]) == (0, 0, 0)

@@ -263,6 +263,13 @@ function trendText(pct) {
   return `<span class="${cls}">${pct > 0 ? "▲" : pct < 0 ? "▼" : "–"} ${Math.abs(pct).toFixed(1)}%</span>`;
 }
 
+// 변화율 근거가 되는 앞·뒤 6개월 거래 건수 (서버는 각 3건 이상일 때만 변화율을 계산)
+function trendBasis(trend) {
+  const sum = (ps) => ps.reduce((n, p) => n + p.count, 0);
+  const before = sum(trend.slice(0, 6)), after = sum(trend.slice(-6));
+  return `앞 6개월 ${before}건 → 최근 6개월 ${after}건${before < 3 || after < 3 ? " · 각 3건 이상일 때만 계산" : ""}`;
+}
+
 function renderResults() {
   $("#results").innerHTML = state.results.map((r, i) => `
     <li class="result${r.key === state.selected ? " active" : ""}" data-key="${esc(r.key)}" tabindex="0">
@@ -347,7 +354,7 @@ function renderDetail(r) {
     <h2>${esc(r.name)}</h2>
     <dl class="kv">
       <dt>최근 6개월 중위가</dt><dd><b>${r.median_price.toFixed(2)}억</b> (${r.deals_6m}건)</dd>
-      <dt>가격 변화</dt><dd>${trendText(r.trend_change_pct)} <small>(처음 3개월 → 최근 3개월)</small></dd>
+      <dt>가격 변화</dt><dd>${trendText(r.trend_change_pct)} <small>(${trendBasis(r.trend)})</small></dd>
     </dl>
     <h3>가격 흐름 (12개월)</h3>
     ${priceChart(r.trend)}
