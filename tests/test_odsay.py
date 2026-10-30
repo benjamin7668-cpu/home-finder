@@ -128,9 +128,11 @@ async def test_commute_requests_are_paced(tmp_path, monkeypatch):
 
     cache = Cache(tmp_path / "c.sqlite")
     async with _client(handler) as c:
+        t0 = time.monotonic()
         await asyncio.gather(*(commute(c, cache, "K", (37.5 + i * 0.01, 127.0), GANGNAM) for i in range(4)))
-    gaps = [b - a for a, b in zip(starts, starts[1:])]
-    assert len(starts) == 4 and min(gaps) >= 0.045
+    # i번째 요청은 시작 후 i×간격 이전에 나가지 않는다 (앞 요청이 늦게 깨어나도 흔들리지 않는 기준)
+    assert len(starts) == 4
+    assert all(s - t0 >= i * 0.05 - 0.005 for i, s in enumerate(sorted(starts)))
 
 
 async def test_commute_daily_quota_does_not_retry(tmp_path, monkeypatch):

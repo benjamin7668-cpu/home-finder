@@ -12,9 +12,10 @@ async def test_pacer_spaces_concurrent_waits():
         await pacer.wait()
         starts.append(time.monotonic())
 
+    t0 = time.monotonic()
     await asyncio.gather(*(one() for _ in range(5)))
-    gaps = [b - a for a, b in zip(sorted(starts), sorted(starts)[1:])]
-    assert min(gaps) >= 0.045
+    # i번째 대기는 시작 후 i×간격 이전에 끝나지 않는다 (앞 대기가 늦게 깨어나도 흔들리지 않는 기준)
+    assert all(s - t0 >= i * 0.05 - 0.005 for i, s in enumerate(sorted(starts)))
 
 
 def test_pacer_shared_across_event_loops():
